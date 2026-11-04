@@ -1,0 +1,16 @@
+# Core ML libraries
+transformers>=4.36.0
+torch>=2.1.0
+accelerate>=0.25.0
+
+# Image processing
+pillow>=10.0.0
+
+# Modal and web framework
+modal>=0.56.0
+fastapi>=0.104.0
+pydantic>=2.5.0
+
+# Hugging Face utilities (for better download progress)
+huggingface-hub>=0.20.0
+hf-transfer>=0.1.4

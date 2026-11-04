@@ -5,13 +5,15 @@
 
 services:
   traefik:
-    image: traefik:v3.1.2
+    image: traefik:v3.6
     container_name: traefik
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      - --accesslog=true
+      - --api.insecure=true
       - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-ops@localhost}
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.tlschallenge=true
@@ -41,12 +43,14 @@ services:
       AUTH_MODE: ${AUTH_MODE:-msal}
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       INSTANCE_ID: ${INSTANCE_ID:-auto}
+    ports:
+      - "8080:8080"
     expose: ["8080"]
     labels:
       - traefik.enable=true
-      - traefik.http.routers.api.rule=PathPrefix(`/api`)
+      - traefik.http.routers.api.rule=Host(`localhost`) && PathPrefix(`/api`)
       - traefik.http.routers.api.entrypoints=websecure
-      - traefik.http.routers.api.tls.certresolver=le
+      # - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.services.api.loadbalancer.server.port=8080
       - traefik.http.services.api.loadbalancer.healthcheck.path=/api/ready
       - traefik.http.services.api.loadbalancer.healthcheck.interval=10s
@@ -152,11 +156,12 @@ services:
       - seaweedfs_data:/data
       - ./deploy/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
     ports:
-      - "8333:8333"   # S3 gateway (this is what the app connects to)
-      - "9333:9333"   # master UI/status
+      - "8333:8333" # S3 gateway (this is what the app connects to)
+      - "9333:9333" # master UI/status
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9333/cluster/status || exit 1"]
+      test:
+        ["CMD-SHELL", "curl -sf http://localhost:9333/cluster/status || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10

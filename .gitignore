@@ -1,3 +1,4 @@
 plan
 .env
 node_modules
+plan/
