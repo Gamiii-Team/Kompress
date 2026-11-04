@@ -1,15 +1,11 @@
 // test-ml.js
 import dotenv from "dotenv";
-import adapter from "./backend/src/llm/adapter";
-import { extractPdf } from "./backend/src/extractors/pdf";
 import fs from "fs";
 import path from "path";
+import adapter from "./backend/src/llm/adapter.js";
+import { extractPdf } from "./backend/src/extractors/pdf.js";
 
 dotenv.config();
-const adapter = require("./backend/src/llm/adapter");
-const { extractPdf } = require("./backend/src/extractors/pdf");
-const fs = require("fs");
-const path = require("path");
 
 async function test() {
   console.log("🚀 Starting ML Pipeline MVP Test...\n");

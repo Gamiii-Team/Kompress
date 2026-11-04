@@ -99,4 +99,4 @@ class LLMAdapter {
   }
 }
 
-module.exports = new LLMAdapter();
+export default new LLMAdapter();

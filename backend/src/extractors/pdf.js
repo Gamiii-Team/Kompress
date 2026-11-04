@@ -1,14 +1,11 @@
-import pdfParse from "pdf-parse";
+import { PDFParse } from "pdf-parse"; // named import, not default
 
-async function extractPdf(buffer) {
+export async function extractPdf(buffer) {
+  const parser = new PDFParse({ data: buffer }); // buffer = Buffer from fs.readFile / upload
   try {
-    const data = await pdfParse(buffer);
-    // Basic cleanup: remove excessive whitespace
-    return data.text.replace(/\s+/g, " ").trim();
-  } catch (error) {
-    console.error("PDF extraction failed:", error);
-    throw new Error("Failed to extract text from PDF");
+    const result = await parser.getText();
+    return result.text;
+  } finally {
+    await parser.destroy(); // frees the pdf.js worker
   }
 }
-
-module.exports = { extractPdf };
