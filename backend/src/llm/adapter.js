@@ -6,7 +6,7 @@ const genAI = new GoogleGenerativeAI(
   process.env.GEMINI_API_KEY || "YOUR_GEMINI_KEY",
 );
 const geminiModel = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+  model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
   generationConfig: {
     responseMimeType: "application/json", // Force JSON output
     temperature: 0, // Deterministic for fact preservation
