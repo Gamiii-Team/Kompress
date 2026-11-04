@@ -1,0 +1,64 @@
+---
+title: L3 — Pipeline Sequence
+description: Zoom into L2 › Worker Process (sequence)
+parent: L2 › Worker Process
+breadcrumb: L3 › Pipeline Sequence (parent: L2 › worker)
+---
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant LB as LB
+    participant API as API
+    participant PG as Postgres
+    participant S3 as Object Storage
+    participant RD as Redis / BullMQ
+    participant W as Worker
+    participant MOD as Modal
+
+    U->>LB: POST /api/documents (multipart, Idempotency-Key)
+    LB->>API: route (least-connections)
+
+    API->>API: verify JWT
+    API->>PG: atomic quota decrement (UPDATE ... WHERE balance > 0)
+    alt balance = 0
+        API-->>U: 403 quota_exceeded (stop)
+    else balance > 0
+        API->>S3: stream upload to users/{userKey}/uploads/{uuid}
+        API->>RD: enqueue job
+        API-->>U: 202 {jobId}
+    end
+
+    loop every 2s
+        U->>API: GET /api/jobs/:id
+        API->>PG: status / stage / output
+        API-->>U: 202 / 200 (done / needs_review)
+    end
+
+    W->>RD: pull job
+    W->>W: validating (ext/magic/script/macro/arch bomb)
+    W->>S3: read upload
+    W->>W: extracting (native or OCR per page)
+    W->>W: structuring (2-level heading tree)
+    W->>W: chunking (1 chunk / subheading)
+    W->>W: assets (image sanitize, tables sanitize)
+    W->>MOD: tables + images + compression (sanitized text/image only)
+    W->>W: verifying (fact preservation)
+    alt facts missing after 2 retries
+        W->>W: condensed_status = fallback_to_original
+    end
+    W->>W: subject fill (if blank)
+    W->>W: assemble + schema validate + completeness
+    alt all checks pass
+        W->>W: status = done
+    else any failure
+        W->>W: status = needs_review
+    end
+    W->>S3: write documents/{docId}.json
+    W->>PG: status + output count (consumes 1 quota unit either way)
+
+    Note over W, U: Both done and needs_review consume 1 quota unit.<br/>Rejected / failed consume 0.
+```
+
+**Parent:** L2 › Worker Process. **Notes:** idempotency key checks Redis first (step 2); quota failure stops before storage (step 3); upload streams straight to S3 (never API local disk); worker never blocks request thread.

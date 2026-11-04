@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "localdev",
+      "credentials": [
+        {
+          "accessKey": "minioadmin",
+          "secretKey": "kompress"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write"]
+    }
+  ]
+}

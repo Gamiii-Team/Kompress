@@ -1,0 +1,58 @@
+---
+title: L0 — System Context
+parent: (top-level system)
+breadcrumb: L0 › Document Compression Pipeline
+---
+
+```mermaid
+flowchart LR
+    subgraph Internet ["Internet"]
+        U["Student / User"]
+        A["University Admin (Enterprise)"]
+    end
+
+    subgraph Pipeline ["Document Compression Pipeline"]
+        direction TB
+        FE["React Frontend"]
+        LB["Edge LB / TLS<br/>Cloudflare + Traefik / DO LB"]
+        API["API Pool<br/>api-1 … api-N"]
+        WK["Worker Pool<br/>worker-1 … M"]
+        SC["Scheduler (singleton)"]
+        DB["Postgres"]
+        RD["Redis<br/>BullMQ + rate limits"]
+        ST["S3 / R2 / MinIO<br/>uploads / documents"]
+        MOD["Modal GPU<br/>text / vision / OCR / tables"]
+        IDP["Microsoft Entra ID"]
+        PAY["PayHere"]
+    end
+
+    U -->|upload document| LB
+    U -->|download JSON| LB
+    A -->|usage reports| LB
+
+    LB --> FE
+    LB --> API
+
+    API --> DB
+    API --> RD
+    API --> ST
+    API --> IDP
+    API --> PAY
+
+    WK --> RD
+    WK --> DB
+    WK --> ST
+    WK --> MOD
+
+    SC --> DB
+    SC --> ST
+
+    style Pipeline fill:#fff,border:#333,stroke-width:2px
+    style U fill:#ffedd5
+    style A fill:#ffedd5
+    style MOD fill:#ffedd5,stroke:#f97316,stroke-width:2px
+    style PAY fill:#ffedd5,stroke:#f97316,stroke-width:2px
+    style IDP fill:#ffedd5,stroke:#f97316,stroke-width:2px
+```
+
+**Parent:** none (root). **Zoom target:** `Pipeline` → L1.

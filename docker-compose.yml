@@ -1,0 +1,168 @@
+# Document Compression Pipeline — T1 single-host (production-shaped)
+# Section 4 of the final plan. Load-balanced locally with:
+#   docker compose up --build -d
+# version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v3.1.2
+    container_name: traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-ops@localhost}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --ping=true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    restart: unless-stopped
+
+  api:
+    build: { context: ., target: runtime }
+    container_name: express-api-core
+    command: ["node", "backend/src/server.js"]
+    env_file: [.env]
+    environment:
+      ROLE: api
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:kompress@postgres:5432/app}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://seaweedfs:8333}
+      S3_BUCKET: ${S3_BUCKET:-doc-compression}
+      PORT: 8080
+      NODE_ENV: ${NODE_ENV:-production}
+      AUTH_MODE: ${AUTH_MODE:-msal}
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      INSTANCE_ID: ${INSTANCE_ID:-auto}
+    expose: ["8080"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=8080
+      - traefik.http.services.api.loadbalancer.healthcheck.path=/api/ready
+      - traefik.http.services.api.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.api.loadbalancer.sticky.cookie=false
+      - traefik.http.middlewares.uploadlimit.buffering.maxRequestBodyBytes=52428800
+      - traefik.http.routers.api.middlewares=uploadlimit
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    stop_grace_period: 30s
+    mem_limit: 768m
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., target: runtime }
+    container_name: worker
+    command: ["node", "backend/src/worker.js"]
+    env_file: [.env]
+    environment:
+      ROLE: worker
+      WORKER_CONCURRENCY: "2"
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:kompress@postgres:5432/app}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://seaweedfs:8333}
+    stop_grace_period: 120s
+    mem_limit: 1g
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+
+  scheduler:
+    build: { context: ., target: runtime }
+    container_name: scheduler
+    command: ["node", "backend/src/scheduler.js"]
+    env_file: [.env]
+    environment:
+      ROLE: scheduler
+      DATABASE_URL: ${DATABASE_URL:-postgres://app:kompress@postgres:5432/app}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://seaweedfs:8333}
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: seaweedfs
+    command: >-
+      server -dir=/data -ip=0.0.0.0
+      -master.volumeSizeLimitMB=1024
+      -volume.max=0
+      -s3
+      -s3.config=/etc/seaweedfs/s3.json
+    environment:
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-minioadmin}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-kompress}
+    volumes:
+      - seaweedfs_data:/data
+      - ./deploy/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    ports:
+      - "8333:8333"   # S3 gateway (this is what the app connects to)
+      - "9333:9333"   # master UI/status
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9333/cluster/status || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  letsencrypt:
+  pgdata:
+  redisdata:
+  seaweedfs_data:

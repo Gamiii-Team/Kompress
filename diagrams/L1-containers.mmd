@@ -1,0 +1,91 @@
+---
+title: L1 — Containers / Load Balancing
+description: One parent node from L0 (Pipeline) zoomed to container topology
+parent: L0 › Pipeline
+breadcrumb: L1 › Containers (parent: L0 › Pipeline)
+---
+
+```mermaid
+flowchart TB
+    subgraph Edge ["Edge — untrusted (red dashed)"]
+        CF["Cloudflare<br/>DNS / WAF / DDoS / CDN"]
+    end
+
+    subgraph LB ["Load Balancer — trust boundary"]
+        TR["Traefik / DO LB<br/>least-connections, /api/ready health, 50 MB cap, NO sticky"]
+    end
+
+    subgraph Static ["Static — compute (blue)"]
+        FE["React build<br/>Cloudflare Pages / nginx"]
+    end
+
+    subgraph API_Pool ["API Pool — stateless compute (blue)"]
+        direction LR
+        API1["api-1<br/>Express, ROLE=api"]
+        API2["api-2<br/>Express, ROLE=api"]
+        APIN["api-N"]
+    end
+
+    subgraph Worker_Pool ["Worker Pool — compute (blue)"]
+        direction LR
+        W1["worker-1<br/>ROLE=worker, concurrency 2"]
+        W2["worker-2"]
+        WM["worker-M"]
+    end
+
+    subgraph Scheduler ["Scheduler — singleton (red) — never scale"]
+        SC["scheduler<br/>cron: monthly grants + retention sweep<br/>DB advisory lock"]
+    end
+
+    subgraph State ["State — persistent (green)"]
+        direction TB
+        PG["Postgres<br/>users / docs / jobs / quota<br/>retention: indefinite"]
+        RD["Redis<br/>BullMQ queue + rate limits + pub/sub<br/>maxmemory 256MB, noeviction (queue)"]
+        S3["S3 / R2 / SeaweedFS<br/>users/{userKey}/uploads/{uuid} (7 d)<br/>users/{userKey}/documents/{docId}.json (indefinite)"]
+    end
+
+    subgraph External ["External — orange"]
+        MOD["Modal<br/>text / vision / OCR / tables"]
+    end
+
+    CF --> TR
+    TR --> FE
+    TR --> API1
+    TR --> API2
+    TR --> APIN
+
+    API1 --> PG
+    API2 --> PG
+    API1 --> RD
+    API2 --> RD
+    API1 --> S3
+    API2 --> S3
+
+    W1 --> RD
+    W2 --> RD
+    WM --> RD
+    W1 --> PG
+    W2 --> PG
+    W1 --> S3
+    W2 --> S3
+
+    W1 --> MOD
+
+    SC --> PG
+    SC --> S3
+
+    style Edge fill:#fee2e2,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 5 5
+    style LB fill:#dbeafe,stroke:#3b82f6
+    style API_Pool fill:#dbeafe
+    style Worker_Pool fill:#dbeafe
+    style Scheduler fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+    style State fill:#dcfce7,stroke:#22c55e
+    style External fill:#ffedd5,stroke:#f97316
+
+    note1["NOTE: API subgraph annotated 'stateless — horizontally scalable'<br/>No session memory, no local disk truth, no in-process queue"]
+    note1 ~~~ API_Pool
+```
+
+**Rules shown:** no sticky sessions, health on `/api/ready`, request body cap 50 MB, draining 30 s, retry only idempotent GET, proxy protocol on if Cloudflare fronts.
+
+**Parent:** L0. **Child:** L2 (zoom into `API_Pool` and `Worker_Pool`).

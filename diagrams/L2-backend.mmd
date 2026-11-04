@@ -1,0 +1,53 @@
+---
+title: L2 — Backend Internals
+description: Zoom into L1 › api and L1 › worker (two subgraphs)
+parent: L1 › API Pool + Worker Pool
+breadcrumb: L2 › Backend Internals (parent: L1 › api / worker)
+---
+
+```mermaid
+flowchart LR
+    subgraph API_Process ["API Process — stateless, ROLE=api"]
+        direction TB
+        AUTH["Auth Middleware<br/>Entra JWT verify (stateless)"]
+        RL["Rate Limiter<br/>Redis global per IP / user"]
+        ROUTES["Routes<br/>documents · jobs · me · billing · health/ready"]
+        VAL["Validators<br/>ext, magic bytes, script/macro scan, archive bomb"]
+        QUOTA["Quota — atomic DB statement<br/>UPDATE balance WHERE > 0"]
+        ADAP["Adapters<br/>Storage / DB / Queue / Model"]
+        PROD["Queue Producer<br/>BullMQ enqueue (Redis)"]
+    end
+
+    subgraph Shared_Adapters ["Shared Adapter Layer (swappable)"]
+        direction TB
+        ST_ADAP["Storage Adapter<br/>MinIO ↔ R2 ↔ S3"]
+        DB_ADAP["DB Adapter<br/>Postgres ↔ D1 (test only)"]
+        MQ_ADAP["Queue Adapter<br/>BullMQ (Redis)"]
+        MDL_ADAP["Model Adapter<br/>Mock ↔ Modal HTTP"]
+    end
+
+    subgraph Worker_Process ["Worker Process — ROLE=worker"]
+        direction TB
+        CONS["Queue Consumer<br/>BullMQ pull + stall recovery"]
+        EXTR["Extractors<br/>pdf / docx / pptx / txt / md / rtf / odt<br/>+ OCR per page if scanned"]
+        STRUCT["Structure<br/>2-level heading tree + IR blocks"]
+        CHUNK["Chunker<br/>1 chunk / subheading, assets separated"]
+        ASSETS["Assets<br/>images sanitize (sharp) · tables sanitize"]
+        LLM["LLM Adapter<br/>compression + verification"]
+        VERIFY["Verify / Completeness<br/>fact preservation + schema validate"]
+        RETAIN["Retention / Deletion<br/>7-day upload TTL + decree"]
+    end
+
+    API_Process --> Shared_Adapters
+    Shared_Adapters --> Worker_Process
+    API_Process --> PROD --> Shared_Adapters
+    Worker_Process --> Shared_Adapters
+
+    style API_Process fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    style Shared_Adapters fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style Worker_Process fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+```
+
+**Key:** api and worker both depend on adapter layer; providers swapped by env only. No coupling to MinIO, Postgres, Mock, or Modal.
+
+**Parent:** L1 (zoomed node: `api` and `worker`). **Child:** L3 (zoom into `Worker_Process` pipeline sequence).

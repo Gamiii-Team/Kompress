@@ -1,0 +1,67 @@
+---
+title: L4 — Deployment Tiers
+description: Four stacked subgraphs with promotion triggers between tiers
+parent: L1 › deployment context
+description: Four stacked subgraphs
+breadcrumb: L4 › Deployment Tiers (parent: L1 › Pipeline)
+---
+
+```mermaid
+flowchart TB
+    subgraph T1 ["T1 — Single Host (test / soft launch)"]
+        direction TB
+        T1_LB["Traefik (TLS ACME)"]
+        T1_API["api × 1 (2 GB droplet)"]
+        T1_WK["worker × 1 (2 GB droplet)"]
+        T1_DB["Postgres container"]
+        T1_RD["Redis container"]
+        T1_S3["MinIO / R2"]
+    end
+
+    subgraph T2 ["T2 — Load Balanced (production)"]
+        direction TB
+        T2_LB["DO LB / Cloudflare<br/>least-connections, /ready health"]
+        T2_API["api × 2 (2 GB each)"]
+        T2_WK["worker × 1 dedicated (4 GB)"]
+        T2_DB["Managed Postgres"]
+        T2_RD["Managed Redis"]
+        T2_S3["Cloudflare R2"]
+    end
+
+    subgraph T3 ["T3 — Independent Autoscaling"]
+        direction TB
+        T3_LB["LB + Cloudflare"]
+        T3_API["api × 3+ (autoscale RPS)"]
+        T3_WK["worker pool (autoscale queue depth)"]
+        T3_DB["Postgres primary + read replica"]
+        T3_RD["Redis (queue: noeviction / cache: allkeys-lru)"]
+        T3_S3["R2"]
+    end
+
+    subgraph T4 ["T4 — Managed Orchestration"]
+        direction TB
+        T4_LB["Multi-AZ LB"]
+        T4_API["ECS / K8s HPA"]
+        T4_WK["Worker HPA (queue depth)"]
+        T4_DB["Managed multi-AZ"]
+        T4_S3["R2 multi-region"]
+    end
+
+    T1 -->|"p95 API > 400 ms OR CPU > 70% sustained 15 min"| T2
+    T2 -->|"queue wait p95 > 60 s OR worker CPU > 75%"| T3
+    T3 -->|"SLA / multi-AZ requirement"| T4
+
+    note_t1["Code change: config only (connection strings)"]
+    note_t2["Code change: config only"]
+    note_t3["Code change: read-replica routing"]
+    note_t1 ~~~ T1
+    note_t2 ~~~ T2
+    note_t3 ~~~ T3
+
+    style T1 fill:#dbeafe
+    style T2 fill:#dbeafe
+    style T3 fill:#dbeafe
+    style T4 fill:#dbeafe
+```
+
+**Parent:** L1 (deployment context). **Key rule:** T1→T2 is a config change because Postgres/Redis/BullMQ were there from day one.

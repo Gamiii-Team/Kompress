@@ -1,0 +1,72 @@
+---
+title: L5 — Data Lifecycle & Trust Boundaries
+description: States from upload to deletion with red dashed trust boundaries
+parent: L2 › Storage / Worker
+breadcrumb: L5 › Data Lifecycle (parent: L2 › Storage)
+---
+
+```mermaid
+flowchart LR
+    subgraph B1 ["B1 — Internet → Edge<br/>untrusted (red dashed)"]
+        U["User / Attacker"]
+    end
+
+    subgraph B2 ["B2 — Edge → API<br/>authenticated + rate limited"]
+        LB["LB + Auth"]
+        VAL["Validation<br/>ext / magic / scan / bomb"]
+    end
+
+    subgraph B3 ["B3 — API / Worker → Parsing Sandbox<br/>untrusted file content"]
+        PARSE["Parser / OCR<br/>worker thread, mem cap 512MB, timeout 120s<br/>no network except allowlisted model endpoints"]
+        SCRATCH["Scratch dir<br/>per-job, deleted finally"]
+    end
+
+    subgraph B4 ["B4 — Worker → Modal<br/>only sanitized text + image"]
+        MOD["Modal endpoints<br/>re-encoded images, no secrets in prompt"]
+    end
+
+    subgraph Lifecycle ["Lifecycle — states (with retention)"]
+        direction LR
+        RCV["Upload received"]
+        VALD["Validated"]
+        ST_UP["Stored uploads/<br/>7-day TTL — lifecycle rule + sweep"]
+        EXTR["Extracted<br/>intermediates in scratch only"]
+        ST_DOC["Written documents/<br/>JSON, no TTL — indefinite"]
+        DEL_U["Early delete upload<br/>immediate"]
+        DEL_DOC["Document delete<br/>JSON + upload + DB cascade"]
+        DEL_ACC["Account delete<br/>full prefix wipe + audit"]
+    end
+
+    RCV --> VALD
+    VALD -->|rejected| DEL_R["Rejected<br/>partial object deleted immediately<br/>0 quota, 0 retention"]
+    VALD --> ST_UP
+    ST_UP --> EXTR
+    EXTR --> ST_DOC
+    ST_DOC --> DEL_U
+    ST_DOC --> DEL_DOC
+    DEL_DOC --> DEL_ACC
+
+    U --> LB
+    LB --> VAL
+    VAL --> RCV
+    RCV --> PARSE
+    PARSE --> MOD
+    PARSE --> ST_DOC
+
+    style B1 fill:#fee2e2,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 6 4
+    style B2 fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    style B3 fill:#fee2e2,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 6 4
+    style B4 fill:#ffedd5,stroke:#f97316,stroke-width:2px
+    style Lifecycle fill:#dcfce7,stroke:#22c55e,stroke-width:2px
+
+    note_image["Image bytes never stored in JSON<br/>Tables converted to structured text, not images"]
+    note_upload["Uploads / 7 days — lifecycle rule + daily sweep"]
+    note_json["JSON / indefinite — user deletion or account deletion only"]
+    note_isolation["Per-user key prefix: users/{userKey}/ — isolation enforced in query"]
+    note_image ~~~ ST_DOC
+    note_upload ~~~ ST_UP
+    note_json ~~~ ST_DOC
+    note_isolation ~~~ Lifecycle
+```
+
+**Parent:** L2 › Storage. **Rules:** 7-day upload deletion (lifecycle + sweep); JSON no TTL; image bytes never in JSON; per-user prefix isolation; rejected uploads fully deleted; scratch always wiped.
